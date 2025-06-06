@@ -8,5 +8,11 @@ RUN apt-get update && apt-get install -y curl ca-certificates pkg-config libssl-
 
 ENV PATH="/root/.local/share/solana/install/active_release/bin:${PATH}"
 
-# Default command to build (this will be overridden by docker-compose)
-CMD ["cargo", "build-sbf", "--manifest-path", "Cargo.toml", "--sbf-out-dir", "/app/target/deploy"]
+# Copy source code
+COPY . .
+
+# Build the Solana program during image creation
+RUN cargo build-sbf --manifest-path Cargo.toml --sbf-out-dir /app/target/deploy
+
+# Use a no-op command since the build is already done
+CMD ["echo", "Solana program built successfully"]
