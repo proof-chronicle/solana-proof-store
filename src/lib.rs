@@ -6,49 +6,48 @@ use solana_program::{
     msg,
     program_error::ProgramError,
     pubkey::Pubkey,
-    rent::Rent,
+    program::invoke,
     system_instruction,
     system_program,
-    sysvar::Sysvar,
-    program::invoke,
+    sysvar::{rent::Rent, Sysvar},
+    declare_id,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 
+declare_id!("B973pRh2NL9DkdvcT8VhSJywqqueknd8JXMkVVn18T3j");
+
 // Data structure to store on-chain
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct ProofData {
     pub url: String,
-    pub hash: String,
-    pub created_at: String,
-    pub is_initialized: bool,
+    pub content_hash: String,
+    pub content_length: u64,
 }
 
 impl ProofData {
     pub fn try_to_vec(&self) -> Result<Vec<u8>, std::io::Error> {
         borsh::to_vec(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 }
 
-// Instructions that can be sent to the program
+// Simplified instructions - only StoreProof
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub enum ProofInstruction {
-    /// Store proof data
-    /// Accounts expected:
-    /// 0. `[signer]` The account paying for the transaction
-    /// 1. `[writable]` The proof data account to create/write to
-    /// 2. `[]` System program
     StoreProof {
         url: String,
-        hash: String,
-        created_at: String,
+        content_hash: String,
+        content_length: u64,
     },
-    
-    /// Get proof data (for verification)
-    /// Accounts expected:
-    /// 0. `[]` The proof data account to read from
-    GetProof,
 }
 
+impl ProofInstruction {
+    pub fn try_to_vec(&self) -> Result<Vec<u8>, std::io::Error> {
+        // Serialize the instruction data directly
+        borsh::to_vec(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    }
+}
 
 // Declare and export the program's entrypoint
 entrypoint!(process_instruction);
@@ -63,13 +62,8 @@ pub fn process_instruction(
         .map_err(|_| ProgramError::InvalidInstructionData)?;
 
     match instruction {
-        ProofInstruction::StoreProof { url, hash, created_at } => {
-            msg!("Instruction: StoreProof");
-            store_proof(program_id, accounts, url, hash, created_at)
-        }
-        ProofInstruction::GetProof => {
-            msg!("Instruction: GetProof");
-            get_proof(accounts)
+        ProofInstruction::StoreProof { url, content_hash, content_length } => {
+            store_proof(program_id, accounts, url, content_hash, content_length)
         }
     }
 }
@@ -78,8 +72,8 @@ fn store_proof(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     url: String,
-    hash: String,
-    created_at: String,
+    content_hash: String,
+    content_length: u64,
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
     
@@ -100,9 +94,8 @@ fn store_proof(
     // Create the proof data
     let proof_data = ProofData {
         url: url.clone(),
-        hash: hash.clone(),
-        created_at: created_at.clone(),
-        is_initialized: true,
+        content_hash: content_hash.clone(),
+        content_length,
     };
 
     // Calculate the space needed for the account
@@ -112,7 +105,6 @@ fn store_proof(
 
     // Create the account if it doesn't exist
     if proof_account.lamports() == 0 {
-        msg!("Creating new proof account");
         invoke(
             &system_instruction::create_account(
                 payer.key,
@@ -132,31 +124,12 @@ fn store_proof(
 
     // Serialize and store the data
     proof_data.serialize(&mut &mut proof_account.data.borrow_mut()[..])?;
+    msg!("Data stored successfully");
 
     msg!("Proof stored successfully!");
     msg!("URL: {}", url);
-    msg!("Hash: {}", hash);
-    msg!("Created at: {}", created_at);
-
-    Ok(())
-}
-
-fn get_proof(accounts: &[AccountInfo]) -> ProgramResult {
-    let account_info_iter = &mut accounts.iter();
-    let proof_account = next_account_info(account_info_iter)?;
-
-    // Deserialize the proof data
-    let proof_data = ProofData::try_from_slice(&proof_account.data.borrow())?;
-
-    if !proof_data.is_initialized {
-        msg!("Account not initialized");
-        return Err(ProgramError::UninitializedAccount);
-    }
-
-    msg!("Proof data retrieved:");
-    msg!("URL: {}", proof_data.url);
-    msg!("Hash: {}", proof_data.hash);
-    msg!("Created at: {}", proof_data.created_at);
+    msg!("Content Hash: {}", content_hash);
+    msg!("Content Length: {}", content_length);
 
     Ok(())
 }
